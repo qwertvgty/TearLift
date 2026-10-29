@@ -214,10 +214,14 @@ UltraTears\
 
 ## Controls and updates
 
-Keyboard: WASD moves, arrow keys move the camera, J = A, K / Space = B, I = X, U = Y, Q / E = L / R, left Alt /
-Shift = ZL / ZR, Enter = +, Tab / Esc = − (map), T F G H = d-pad, Z / C = stick buttons, and F11 or Alt+Enter toggles
-full screen. Xbox, DualSense, Switch Pro and other controllers work through SDL3. The face-button layout follows the
-Switch: A is the right button.
+The debug keyboard/mouse preset is: WASD moves; E (or J) = A/confirm; Q (or K) = B; Space (or I) = X;
+left mouse button (or U) = Y; right mouse button (or left Alt) = ZL; Esc = −; Tab (or Enter) = +.
+Mouse motion maps to the right stick, with arrow keys kept as an alternative. F1 captures/releases the mouse;
+the first left click in an uncaptured game window captures it without attacking. Switching away releases capture
+and clears held inputs. This is a basic stick emulation for debugging, not a native PC mouse camera.
+Left Shift = ZR, T F G H = d-pad, Z / C = stick buttons, and F11 or Alt+Enter toggles full screen.
+Xbox, DualSense, Switch Pro and other controllers work through SDL3; the face-button layout follows the Switch
+(A is the right button). Mouse/keyboard and the physical controller remain separate input sources.
 
 To update a Releases build, extract the new builder package over the old folder and run `setup.bat` again. Keep
 `userdata` to preserve saves. For a Git build, run `git pull`, then repeat the same `python tools/setup.py` command and

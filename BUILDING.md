@@ -128,6 +128,23 @@ thread; long-running, multi-threaded recording and within-draw feedback correctn
 See `experiments/2026-10-29-feedback-copy.md` for test scope and limitations. Shader creation also checks that the
 SPIR-V `main` entry point matches the requested stage, rejecting mismatches before calling the driver.
 
+### Clean diagnostic and performance launches
+
+For a clean performance comparison, `tools/launch_debug.ps1` clears inherited audit, scripted-input and capture
+variables in the child process only, enables the feedback-copy fallback, and selects a recording-thread count.
+It preserves the caller's environment, refuses to launch a second game, and never stops an existing instance:
+
+```powershell
+.\tools\launch_debug.ps1 -Threads 1
+.\tools\launch_debug.ps1 -Threads 4
+```
+
+Run these separately, after closing the preceding game, at the same save/camera position with warmed shader binaries.
+Four-thread copying is experimental; compare image correctness and stability before claiming a speedup. The launcher
+disables shader-ahead compilation to avoid background work competing with the measurement, but keeps `--debug` timing
+statistics. It does not remove diagnostic entries explicitly written into `ultratears.cfg`. `-GameDir`, `-ExecutableName`
+and `-SaveDir` select another output, executable or existing save directory; `-DryRun` prints settings without launching.
+
 ## Making the builder package (maintainers)
 
 ```

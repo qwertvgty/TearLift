@@ -1,7 +1,8 @@
 // The window (milestone 3.2): SDL3 on the process's main thread — window, keyboard, game controllers with rumble —
 // while the game runs on its own thread (boot.c). The picture goes through src/vk/present.c.
 //  - keyboard: SDL scancodes become the Mac virtual key codes the controller emulation of overrides_input.c (from
-//    MacNativeGames) expects, so the key layout is theirs (J/K/I/U = A/B/X/Y, WASD + arrows = sticks, ...);
+//    MacNativeGames) expects, with the small debug preset in input_debug.h overriding E/Q/Space/Tab/Esc;
+//  - mouse: F1 or an initial click captures relative motion as the right stick; left/right buttons are Y/ZL;
 //  - game controllers: buttons by position as on a Switch controller (the right face button is A), sticks with Y up;
 //  - rumble: the game's vibration values (hid_feedback.c) drive the controller's low / high frequency motors.
 //  - motion: the controller's gyro and accelerometer feed motion_fusion.c (gyro aiming); F11 / Alt+Enter: fullscreen.
@@ -11,15 +12,21 @@
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "host.h"
+#include "input_debug.h"
 #include "../vk/present.h"
 
 static SDL_Window *window;
 static SDL_Gamepad *pad;
 static SDL_Mutex *pad_lock;
+static bool mouse_captured;
+static InputDebugKeys keyboard;
 
 static int mac_key(SDL_Scancode s) {
+    int override = input_debug_key(s);
+    if (override >= 0) return override;
     switch (s) {
     case SDL_SCANCODE_A: return 0; case SDL_SCANCODE_S: return 1; case SDL_SCANCODE_D: return 2;
     case SDL_SCANCODE_F: return 3; case SDL_SCANCODE_H: return 4; case SDL_SCANCODE_G: return 5;
@@ -160,6 +167,16 @@ static void toggle_fullscreen(void) {
     SDL_SetWindowFullscreen(window, !on);   // borderless desktop fullscreen (no display mode change)
 }
 
+static void capture_mouse(bool capture) {
+    if (!SDL_SetWindowRelativeMouseMode(window, capture)) {
+        fprintf(stderr, "[totk] mouse capture: %s\n", SDL_GetError());
+        if (capture) return;
+    }
+    mouse_captured = capture;
+    runtime_mouse_clear();
+    fprintf(stderr, "[totk] mouse look %s (F1 toggles capture; E confirms)\n", capture ? "on" : "off");
+}
+
 // Game frame rate and shown frame rate in the title, twice a second.
 static void title_update(void) {
     static uint64_t t0, game0, shown0;
@@ -174,15 +191,22 @@ static void title_update(void) {
 }
 
 _Noreturn void window_loop(void) {
+    uint64_t previous = SDL_GetTicksNS();
+    fprintf(stderr, "[totk] debug keys: E=A, Esc=Minus, Tab=Plus, Space=X, Q=B; click window or F1 for mouse look\n");
     for (;;) {
+        float dx = 0, dy = 0;
         SDL_Event e;
-        if (SDL_WaitEventTimeout(&e, 100)) {
+        if (SDL_WaitEventTimeout(&e, 16)) {
             do {
                 switch (e.type) {
                 case SDL_EVENT_QUIT:
                     fprintf(stderr, "[totk] window closed\n");
                     _Exit(0);
                 case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP: {
+                    if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F1) {
+                        capture_mouse(!mouse_captured);
+                        break;
+                    }
                     if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat &&
                         (e.key.scancode == SDL_SCANCODE_F11 ||
                          (e.key.scancode == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT)))) {
@@ -195,10 +219,31 @@ _Noreturn void window_loop(void) {
                         break;
                     }
                     int k = mac_key(e.key.scancode);
-                    if (k >= 0 && !e.key.repeat) runtime_input_key((unsigned)k, e.type == SDL_EVENT_KEY_DOWN);
+                    if (k >= 0 && !e.key.repeat) {
+                        int changed = input_debug_key_change(&keyboard, e.key.scancode, k, e.type == SDL_EVENT_KEY_DOWN);
+                        if (changed >= 0) runtime_input_key((unsigned)k, changed);
+                    }
                     break;
                 }
-                case SDL_EVENT_WINDOW_FOCUS_LOST: runtime_input_clear(); break;
+                case SDL_EVENT_MOUSE_MOTION:
+                    if (mouse_captured) { dx += e.motion.xrel; dy += e.motion.yrel; }
+                    break;
+                case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP: {
+                    if (!mouse_captured) {
+                        if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT &&
+                            (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) capture_mouse(true);
+                        break; // first click captures only; it must not attack
+                    }
+                    uint64_t bit = input_debug_mouse_button(e.button.button);
+                    if (bit) runtime_mouse_button(bit, e.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
+                    break;
+                }
+                case SDL_EVENT_WINDOW_FOCUS_LOST:
+                    capture_mouse(false);
+                    memset(&keyboard, 0, sizeof keyboard);
+                    runtime_input_clear(); dx = dy = 0;
+                    break;
+                case SDL_EVENT_WINDOW_FOCUS_GAINED: pad_update(); break;
                 case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: vkp_resized(); break;
                 case SDL_EVENT_GAMEPAD_ADDED: open_pad(e.gdevice.which); break;
                 case SDL_EVENT_GAMEPAD_REMOVED: close_pad(e.gdevice.which); break;
@@ -210,6 +255,11 @@ _Noreturn void window_loop(void) {
                 }
             } while (SDL_PollEvent(&e));
         }
+        uint64_t now = SDL_GetTicksNS();
+        double seconds = (now - previous) / 1e9;
+        runtime_mouse_axes(mouse_captured ? input_debug_mouse_axis(dx, seconds) : 0,
+                           mouse_captured ? input_debug_mouse_axis(-dy, seconds) : 0);
+        previous = now;
         title_update();
     }
 }

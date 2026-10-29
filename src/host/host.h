@@ -54,6 +54,9 @@ typedef struct { uint64_t buttons; int32_t lx, ly, rx, ry; int connected; } Runt
 void runtime_gamepad_set(const RuntimeGamepadState *s);
 void runtime_input_key(unsigned code, int down);   // Mac virtual key codes (MacNativeGames' key layout)
 void runtime_input_clear(void);
+void runtime_mouse_axes(int32_t rx, int32_t ry);
+void runtime_mouse_button(uint64_t button, int down);
+void runtime_mouse_clear(void);
 
 // ---- window (window_sdl.c): SDL3 on the main thread
 int window_init(void);              // 1 = window up (presentation may still be missing: logged)

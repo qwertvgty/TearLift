@@ -1,8 +1,8 @@
 /* nn::hid: one full-key controller (docked) or the handheld controller, fed by the keyboard and game controllers.
  * Ported from MacNativeGames games/totk/runtime/input.c @b75be8c (MIT); state ABI follows libnx HID. Changes: key codes
  * stay MacNativeGames' (Mac virtual key codes) and the window layer translates its own keys into them; the game
- * controller source is runtime_gamepad_read (none until the window / SDL3 layer of milestone 3.2); the diagnostic input
- * script / file commands are not ported. */
+ * controller and mouse sources come from the SDL3 window layer; the diagnostic keyboard script follows the same
+ * debug key overrides as physical input. */
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "host.h"
+#include "input_debug.h"
 #include "../runtime/hle.h"
 
 typedef struct { int64_t sampling; uint64_t buttons; int32_t lx, ly, rx, ry; uint32_t attributes, pad; } NpadState;
@@ -36,8 +37,27 @@ static uint64_t button(unsigned code) {
 
 /* Game controllers: filled by the window layer (SDL3, milestone 3.2). */
 static RuntimeGamepadState g_pad;
+static RuntimeGamepadState g_mouse;   // separate from the physical pad and keyboard: releases must not clear them
+static uint64_t mouse_pending, mouse_sampled;
 void runtime_gamepad_set(const RuntimeGamepadState *s) { pthread_mutex_lock(&input_lock); g_pad = *s; pthread_mutex_unlock(&input_lock); }
 static void gamepad_read(RuntimeGamepadState *out) { *out = g_pad; }
+
+void runtime_mouse_axes(int32_t rx, int32_t ry) {
+    pthread_mutex_lock(&input_lock);
+    g_mouse.rx = rx; g_mouse.ry = ry; mouse_sampled = runtime_now_ns();
+    pthread_mutex_unlock(&input_lock);
+}
+void runtime_mouse_button(uint64_t button, int down) {
+    pthread_mutex_lock(&input_lock);
+    if (down) { mouse_pending |= button & ~g_mouse.buttons; g_mouse.buttons |= button; }
+    else g_mouse.buttons &= ~button;
+    pthread_mutex_unlock(&input_lock);
+}
+void runtime_mouse_clear(void) {
+    pthread_mutex_lock(&input_lock);
+    memset(&g_mouse, 0, sizeof g_mouse); mouse_pending = mouse_sampled = 0;
+    pthread_mutex_unlock(&input_lock);
+}
 
 void runtime_input_key(unsigned code, int down) {
     if (code >= 128) return;
@@ -51,6 +71,8 @@ void runtime_input_clear(void) {
     memset(keys, 0, sizeof keys);
     pending = 0;
     memset(&g_pad, 0, sizeof g_pad);
+    memset(&g_mouse, 0, sizeof g_mouse);
+    mouse_pending = mouse_sampled = 0;
     pthread_mutex_unlock(&input_lock);
 }
 
@@ -59,10 +81,13 @@ void runtime_input_clear(void) {
    (A-Z, RETURN, SPACE, TAB, ESCAPE, UP, DOWN, LEFT, RIGHT, LSHIFT, LALT) and go through the same layout as typing. */
 static int script_code(const char *k, size_t n) {
     static const struct { const char *name; int code; } named[] = {
-        {"RETURN", 36}, {"SPACE", 49}, {"TAB", 48}, {"ESCAPE", 53}, {"UP", 126}, {"DOWN", 125}, {"LEFT", 123},
+        {"RETURN", 36}, {"SPACE", 34}, {"TAB", 36}, {"ESCAPE", 53}, {"UP", 126}, {"DOWN", 125}, {"LEFT", 123},
         {"RIGHT", 124}, {"LSHIFT", 56}, {"LALT", 58}};
     static const int letters[26] = {0, 11, 8, 2, 14, 3, 5, 4, 34, 38, 40, 37, 46, 45, 31, 35, 12, 15, 1, 17, 32, 9, 13, 7, 16, 6};
-    if (n == 1 && k[0] >= 'A' && k[0] <= 'Z') return letters[k[0] - 'A'];
+    if (n == 1 && k[0] >= 'A' && k[0] <= 'Z') {
+        int override = input_debug_key((SDL_Scancode)(SDL_SCANCODE_A + k[0] - 'A'));
+        return override >= 0 ? override : letters[k[0] - 'A'];
+    }
     for (unsigned i = 0; i < sizeof named / sizeof *named; i++)
         if (strlen(named[i].name) == n && !strncmp(named[i].name, k, n)) return named[i].code;
     return -1;
@@ -129,6 +154,12 @@ static int pad_states(NpadState *out, int max, const uint32_t *id, uint32_t want
         if (abs(pad.ly) > abs(state.ly)) state.ly = pad.ly;
         if (abs(pad.rx) > abs(state.rx)) state.rx = pad.rx;
         if (abs(pad.ry) > abs(state.ry)) state.ry = pad.ry;
+        state.buttons |= g_mouse.buttons | mouse_pending;
+        mouse_pending = 0;
+        if (input_debug_mouse_recent(runtime_now_ns(), mouse_sampled)) {
+            if (abs(g_mouse.rx) > abs(state.rx)) state.rx = g_mouse.rx;
+            if (abs(g_mouse.ry) > abs(state.ry)) state.ry = g_mouse.ry;
+        }
     }
     *out = state;
     pthread_mutex_unlock(&input_lock);
