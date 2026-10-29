@@ -3,6 +3,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Whether the SPIR-V entry point named main has the requested ExecutionModel (0 vertex, 4 fragment, 5 compute).
+// A module can validate on its own yet be invalid for the stage supplied to vkCreateShadersEXT.
+int vkb_spv_has_main_stage(const uint32_t *in, size_t nwords, uint32_t model);
+
 // Vertex inputs at the locations in locmask (vec4 float in the translation) become uvec4, or ivec4 where signedmask
 // has the bit; loads from them are bitcast back to float. *out: a new module (malloc) of *outw words. Returns the
 // number of inputs changed (0: nothing to do or a shape not handled - the caller keeps the original).

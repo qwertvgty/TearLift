@@ -94,6 +94,29 @@ VkImageView vkb_view(vkb_image *im, const view_t *v, int attachment, int view_ty
 int vkb_tex_upload(VkCommandBuffer cb, vkb_image *im);
 void vkb_tex_image_stats(uint64_t *made, uint64_t *shared, uint64_t *taken_back);   // images by memory and shape
 
+// Experimental sampled-attachment fallback: a snapshot before a draw, never simultaneous sampling/writing.
+static inline uint32_t vkb_feedback_regions(const vkb_image *im, VkImageCopy *regions, uint32_t capacity) {
+    if (!im) return 0;
+    uint32_t aspects = im->aspect, n = 0;
+    if (!regions || !im->width || !im->height || !im->depth || !im->layers || !im->levels || im->levels > 32 ||
+        !aspects || (aspects & ~(VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) ||
+        ((aspects & VK_IMAGE_ASPECT_COLOR_BIT) && aspects != VK_IMAGE_ASPECT_COLOR_BIT) || (im->depth > 1 && im->layers != 1)) return 0;
+    uint32_t count = !!(aspects & VK_IMAGE_ASPECT_COLOR_BIT) + !!(aspects & VK_IMAGE_ASPECT_DEPTH_BIT) + !!(aspects & VK_IMAGE_ASPECT_STENCIL_BIT);
+    if (capacity / count < im->levels) return 0;
+    for (uint32_t bit = VK_IMAGE_ASPECT_COLOR_BIT; bit <= VK_IMAGE_ASPECT_STENCIL_BIT; bit <<= 1) {
+        if (!(aspects & bit)) continue;
+        for (uint32_t level = 0; level < im->levels; level++) {
+            uint32_t w = im->width >> level, h = im->height >> level, d = im->depth >> level;
+            VkImageSubresourceLayers sub = {bit, level, 0, im->layers};
+            regions[n++] = (VkImageCopy){.srcSubresource = sub, .dstSubresource = sub,
+                .extent = {w ? w : 1, h ? h : 1, d ? d : 1}};
+        }
+    }
+    return n;
+}
+vkb_image *vkb_feedback_snapshot(vkb_image *source, int attachment_index);
+void vkb_feedback_slot_reset(int slot);   // slot's GPU work complete, no recording threads active
+
 // ---- vkb_draw.c: device-local mirrors of written game memory for the current submission
 int vkb_gpu_addr(uint64_t addr, uint64_t len, VkBuffer *buf, VkDeviceSize *off);   // the mirror, else the imported pool
 void vkb_mirrors_evict(uint64_t addr, uint64_t len);   // mirrors straddling the range go back (outside a pass)

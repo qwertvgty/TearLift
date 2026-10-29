@@ -9,6 +9,19 @@
 
 #include "vkb_spv.h"
 
+int vkb_spv_has_main_stage(const uint32_t *in, size_t nw, uint32_t model) {
+    if (!in || nw < 5 || in[0] != 0x07230203) return 0;
+    int found = 0;
+    for (size_t i = 5; i < nw;) {
+        uint32_t wc = in[i] >> 16, op = in[i] & 0xffff;
+        if (!wc || wc > nw - i) return 0;
+        if (op == 15 && wc >= 5 && in[i + 1] == model && in[i + 3] == 0x6e69616d && in[i + 4] == 0)
+            found = 1;   // OpEntryPoint <model> <id> "main"
+        i += wc;
+    }
+    return found;
+}
+
 enum { OP_TYPE_INT = 21, OP_TYPE_FLOAT = 22, OP_TYPE_VECTOR = 23, OP_TYPE_POINTER = 32, OP_VARIABLE = 59, OP_LOAD = 61,
        OP_ACCESS_CHAIN = 65, OP_IN_BOUNDS_ACCESS_CHAIN = 66, OP_DECORATE = 71, OP_BITCAST = 124 };
 enum { DEC_LOCATION = 30, SC_INPUT = 1 };

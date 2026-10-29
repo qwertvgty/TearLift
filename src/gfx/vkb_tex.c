@@ -270,6 +270,72 @@ static int create(vkb_image *im, const tex_t *t) {
     return 1;
 }
 
+// Copies of sampled attachments, separate from the game's image/alias registry. Each slot and recording worker owns
+// its copies: they may be reused by later draws on that worker, but not overwritten by another in-flight submission.
+// CPU entries stay alive for the chunk layout tracker; retirement happens only when the owning slot is idle.
+typedef struct feedback_copy {
+    entry e;
+    int attachment;
+    uint64_t touched;
+    struct feedback_copy *next;
+} feedback_copy;
+static feedback_copy *g_feedback[VKB_SLOTS][VKB_MAXREC];
+static _Atomic uint64_t g_feedback_copies;
+
+
+void vkb_feedback_slot_reset(int slot) {
+    for (int w = 0; w < VKB_MAXREC; w++) {
+        feedback_copy **p = &g_feedback[slot][w];
+        while (*p) {
+            feedback_copy *c = *p;
+            if (c->touched + 120 >= vkb_frame()) { p = &c->next; continue; }
+            *p = c->next;
+            for (int i = 0; i < c->e.nviews; i++) vk.vkDestroyImageView(vkc.device, c->e.view[i], NULL);
+            vk.vkDestroyImage(vkc.device, c->e.im.img, NULL);
+            vk.vkFreeMemory(vkc.device, c->e.im.mem, NULL);
+            free(c);
+        }
+    }
+}
+
+vkb_image *vkb_feedback_snapshot(vkb_image *src, int attachment_index) {
+    int slot = vkb_slot(), worker = vkb_worker();
+    VkImageCopy regions[64];
+    uint32_t n = vkb_feedback_regions(src, regions, 64);
+    if (!n || vkb_in_pass() || slot < 0 || slot >= VKB_SLOTS || worker < 0 || worker >= VKB_MAXREC ||
+        !(src->usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) || src->compressed || src->astc) return NULL;
+    feedback_copy **pool = &g_feedback[slot][worker], *c;
+    for (c = *pool; c; c = c->next)
+        if (c->attachment == attachment_index && c->e.im.format == src->format &&
+            c->e.im.width == src->width && c->e.im.height == src->height && c->e.im.depth == src->depth &&
+            c->e.im.layers == src->layers && c->e.im.levels == src->levels && !memcmp(&c->e.im.d, &src->d, sizeof src->d)) break;
+    if (!c) {
+        c = calloc(1, sizeof *c);
+        if (!c) return NULL;
+        tex_t t = {.d = src->d};
+        if (!create(&c->e.im, &t)) { free(c); return NULL; }
+        if (c->e.im.format != src->format) {
+            vk.vkDestroyImage(vkc.device, c->e.im.img, NULL);
+            vk.vkFreeMemory(vkc.device, c->e.im.mem, NULL);
+            free(c); return NULL;
+        }
+        c->attachment = attachment_index;
+        c->next = *pool; *pool = c;
+    }
+    c->touched = vkb_frame();
+    VkCommandBuffer cb = vkb_cmd();
+    vkb_tex_upload(cb, src);   // initial CPU contents, if any; never replaces GPU-written targets
+    vkb_image_use(cb, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+    vkb_image_use(cb, &c->e.im, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    vk.vkCmdCopyImage(cb, src->img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, c->e.im.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, n, regions);
+    vkb_image_use(cb, &c->e.im, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    uint64_t copies = atomic_fetch_add(&g_feedback_copies, 1) + 1;
+    if (copies <= 8 || copies % 10000 == 0)
+        VLOG("[feedback-copy] snapshot %llu: target %d, %ux%ux%u, %u levels, %u layers, %u aspects/levels", (unsigned long long)copies,
+             attachment_index, src->width, src->height, src->depth, src->levels, src->layers, n);
+    return &c->e.im;
+}
+
 // ---- one memory, several sizes: TOTK's dynamic resolution re-creates its render targets at another size over the same
 // memory (1600x896 <-> 1432x808 on the Great Sky Island when the camera turns to the sky and back). On the console the
 // new objects see what was rendered last through the old ones; here each size is an image of its own, and coming back

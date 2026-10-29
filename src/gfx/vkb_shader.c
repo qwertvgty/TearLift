@@ -182,6 +182,12 @@ static size_t drop_cull_distance(uint32_t *w, size_t n) {
 static _Atomic uint64_t g_from_bin, g_from_spv, g_bin_refused, g_obj_live, g_obj_destroyed;
 static VkResult make_object(const char *key, const vkb_shbin_variant *v, VkShaderStageFlagBits stage, const uint32_t *spv,
                             size_t bytes, VkShaderEXT *obj) {
+    uint32_t model = stage == VK_SHADER_STAGE_VERTEX_BIT ? 0 : stage == VK_SHADER_STAGE_FRAGMENT_BIT ? 4
+                   : stage == VK_SHADER_STAGE_COMPUTE_BIT ? 5 : UINT32_MAX;
+    if ((bytes & 3) || !vkb_spv_has_main_stage(spv, bytes / 4, model)) {
+        VLOG("shader %s: rejecting SPIR-V main entry point inconsistent with Vulkan stage %u", key ? key : "-", (unsigned)stage);
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
     VkDescriptorSetLayout layout = vkb_set_layout(stage == VK_SHADER_STAGE_COMPUTE_BIT);
     VkShaderCreateInfoEXT ci = {VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT, .stage = stage,
         .nextStage = stage == VK_SHADER_STAGE_VERTEX_BIT ? VK_SHADER_STAGE_FRAGMENT_BIT : 0,
@@ -198,7 +204,13 @@ static VkResult make_object(const char *key, const vkb_shbin_variant *v, VkShade
         vkb_shbin_drop(key, v);   // refused (VK_INCOMPATIBLE_SHADER_BINARY_EXT): compiled again below and kept anew
         atomic_fetch_add(&g_bin_refused, 1);
     }
+    int trace_compile = getenv("TOTK_SHADER_COMPILE_TRACE") != NULL;
+    if (trace_compile) {
+        VLOG("[compile] begin tid=%lu key=%s stage=%u bytes=%zu", (unsigned long)GetCurrentThreadId(), key ? key : "-", (unsigned)stage, bytes);
+        fflush(stderr);   // keep the last shader's identity if the driver faults inside vkCreateShadersEXT
+    }
     VkResult r = vk.vkCreateShadersEXT(vkc.device, 1, &ci, NULL, obj);
+    if (trace_compile) VLOG("[compile] end tid=%lu key=%s result=%d", (unsigned long)GetCurrentThreadId(), key ? key : "-", (int)r);
     if (r != VK_SUCCESS) return r;
     atomic_fetch_add(&g_from_spv, 1);
     atomic_fetch_add(&g_obj_live, 1);

@@ -107,6 +107,27 @@ starts, but loading reads many small files, which is slower; the packed image is
 - For a bug report, attach `ultratears.log` from the game folder (`ultratears-previous.log` is the run before). For a
   performance report, start the game with `UltraTears (debug).bat`: the log then also has frame timing and memory.
 
+### Experimental fallback for sampled render targets
+
+Some drivers expose `VK_EXT_shader_object` but not `VK_EXT_attachment_feedback_loop_dynamic_state`. The native
+feedback-loop path is unavailable there; affected draws previously sampled an empty replacement texture. An opt-in
+fallback snapshots a sampled attachment before each draw and samples the copy while drawing into the original.
+It does not enable unsupported Vulkan features and is not a general replacement for feedback within one draw.
+
+From the completed game/output folder, the tested configuration is:
+
+```powershell
+$env:TOTK_VK_FEEDBACK_COPY="1"
+$env:TOTK_VK_RECORD_THREADS="1"
+.\UltraTears.exe
+```
+
+The fallback remains off unless requested. Setting `TOTK_VK_FEEDBACK_COPY=0` restores the previous path. Devices
+with native feedback-loop support keep that path. The current confirmation is on RX 6750 GRE 12GB with one recording
+thread; long-running, multi-threaded recording and within-draw feedback correctness are not yet fully validated.
+See `experiments/2026-10-29-feedback-copy.md` for test scope and limitations. Shader creation also checks that the
+SPIR-V `main` entry point matches the requested stage, rejecting mismatches before calling the driver.
+
 ## Making the builder package (maintainers)
 
 ```

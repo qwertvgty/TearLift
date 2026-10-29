@@ -111,6 +111,7 @@ static int no_cache(void) {   // TOTK_VK_NO_RECORD_CACHE=1 (development): every 
 static pthread_mutex_t g_ring_mu = PTHREAD_MUTEX_INITIALIZER;
 void vkb_slot_reset(int slot) {   // the slot's previous submission has completed; a new one starts recording
     vkb_rec_begin();
+    vkb_feedback_slot_reset(slot);
     if (vkb_db_on()) vkb_db_slot_reset(slot);
     pthread_mutex_lock(&g_ring_mu);
     for (int w = 0; w < VKB_MAXREC; w++) ring_trim(&g_res[slot][w]);
@@ -500,6 +501,12 @@ static vkb_image *handle_image(uint64_t h, const view_t **view) {
 // without it they would leave the pass, and the draw saw an empty texture instead (the audit's top substitution).
 static __thread vkb_image *g_fb_rt[9];   // this draw's targets: colour 0-7, depth 8
 static __thread uint32_t g_fb;           // the targets it samples (vkb.h VKB_FB_DEPTH)
+static __thread vkb_image *g_fb_copy[9];
+
+static int feedback_copy_on(void) {
+    const char *e = getenv("TOTK_VK_FEEDBACK_COPY");
+    return !vkc.has_feedback_loop && e && *e == '1';   // experimental, opt in for the A/B test
+}
 
 static int fb_index(const vkb_image *im) {   // the target bit of a sampled image, -1: not a target of this draw
     for (int i = 0; im && i < 9; i++) if (g_fb_rt[i] == im) return i;
@@ -508,7 +515,8 @@ static int fb_index(const vkb_image *im) {   // the target bit of a sampled imag
 static void feedback_scan(const vkb_shader *vs, const vkb_shader *fs) {
     g_fb = 0;
     memset(g_fb_rt, 0, sizeof g_fb_rt);
-    if (!vkc.has_feedback_loop) return;
+    memset(g_fb_copy, 0, sizeof g_fb_copy);
+    if (!vkc.has_feedback_loop && !feedback_copy_on()) return;
     const p_set_rt *rt = vkb_rt();
     int n = rt->n < 0 ? 0 : rt->n > 8 ? 8 : rt->n, any = 0;
     for (int i = 0; i < n; i++) if (rt->color[i]) any |= (g_fb_rt[i] = vkb_image_of(rt->color[i])) != NULL;
@@ -965,7 +973,9 @@ static void write_stage(writes_t *W, VkDescriptorSet set, const vkb_shader *sh, 
         const view_t *v = NULL;
         vkb_image *im = h ? handle_image(h, &v) : NULL;
         VkImageViewType vt = view_type_of(sh->tex[i].type);
-        int readable = im && (fb_sampled(im) ? vkb_layout_is(im, VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT)
+        int native_feedback = fb_sampled(im) && vkc.has_feedback_loop;
+        if (fb_sampled(im) && !vkc.has_feedback_loop) im = g_fb_copy[fb_index(im)];
+        int readable = im && (native_feedback ? vkb_layout_is(im, VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT)
                                              : vkb_layout_is(im, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
         VkImageView view = readable ? vkb_view(im, v, 0, (int)vt) : VK_NULL_HANDLE;
         if (sh->tex[i].separate) vkb_audit(A_TEX_SEPARATE, sh->key);
@@ -1832,19 +1842,22 @@ void vkb_draw(const uint8_t *a, int indexed) {
         }
     }
     feedback_scan(vs, fs);
-    if (vkb_in_pass() && vkb_pass_fb() != g_fb) vkb_pass_end_r(PE_FEEDBACK);   // [temporary] a pass per change of sampled targets
+    if (vkb_in_pass() && ((!vkc.has_feedback_loop && g_fb) || vkb_pass_fb() != g_fb))
+        vkb_pass_end_r(PE_FEEDBACK);   // copy fallback snapshots the results before this draw, outside rendering
     if ((vkb_in_pass() && (images_need_work(vs, 0) || (fs && images_need_work(fs, 1))))) vkb_pass_end_r(PE_IMAGES);
     if (!vkb_in_pass()) {
         prepare_images(vs, 0);
         if (fs) prepare_images(fs, 1);
     }
+    if (!vkc.has_feedback_loop && g_fb)
+        for (int i = 0; i < 9; i++) if (g_fb & (1u << i)) g_fb_copy[i] = vkb_feedback_snapshot(g_fb_rt[i], i);
     mirrors_prepare(vs, 0);   // written storage buffers: device-local copies for the submission
     if (fs) mirrors_prepare(fs, 1);
     mirrors_prepare_fixed(indexed, di);
     VkExtent2D bare = {0, 0};   // a draw without targets covers its viewport
     if (S.nvp && S.vp[0][2] > 0 && S.vp[0][3] > 0)
         bare = (VkExtent2D){(uint32_t)ceilf(S.vp[0][0] + S.vp[0][2]), (uint32_t)ceilf(S.vp[0][1] + S.vp[0][3])};
-    if (!vkb_pass_begin(bare, g_fb)) { vkb_cnt_add(g_skipped[2], 1); vkb_audit(A_DRAW_NO_TARGETS, fs ? fs->key : vs->key); return; }
+    if (!vkb_pass_begin(bare, vkc.has_feedback_loop ? g_fb : 0)) { vkb_cnt_add(g_skipped[2], 1); vkb_audit(A_DRAW_NO_TARGETS, fs ? fs->key : vs->key); return; }
     VkCommandBuffer cb = vkb_cmd();
     writes_t *W = &B->writes;
     W->n = 0;
