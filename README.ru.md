@@ -1,3 +1,7 @@
+> This is inherited upstream documentation, not yet adapted to UltraTears Windows.
+> For this derivative's Windows-first scope, NVIDIA/AMD validation status and release availability, see
+> [README.md](README.md) and [PROJECT.md](PROJECT.md). Linux/Steam Deck priorities below describe upstream only.
+
 # UltraTears
 
 **UltraTears** — неофициальный сборщик: на вашем ПК он превращает вашу собственную копию игры для Nintendo Switch в

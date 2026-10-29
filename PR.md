@@ -1,5 +1,12 @@
 # Reviewing pull requests
 
+## Scope of this derivative
+
+Windows is the current development target, with both NVIDIA and AMD in scope. See [PROJECT.md](PROJECT.md)
+for the hardware validation matrix and performance acceptance criteria. Linux/Steam Deck feature development
+is not a current priority. Record the original author, PR URL and commit when adapting community work.
+This checklist is inherited from upstream and retained as a review baseline, not a promise of automatic merging.
+
 The maintainer's checklist for every pull request. Contributors are welcome to read it: a PR that already answers
 these points is merged sooner.
 

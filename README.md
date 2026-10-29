@@ -1,8 +1,23 @@
-# UltraTears
+# UltraTears Windows
+
+**Windows-first community development, with NVIDIA and AMD both in scope.**
+
+This is an independently maintained derivative of [UltraTears by kuraeow](https://github.com/kuraeow/ultratears),
+not an official upstream release or a from-scratch port. The original Git history, author attribution and license
+are retained. **UltraTears Windows is a working name.** Executable names and internal identifiers remain unchanged.
+
+Our priorities are rendering correctness, stability, reproducible frame-time improvements and practical PC controls
+on Windows. NVIDIA and AMD are equal validation targets; this is not a claim that every GPU or driver has been tested.
+Linux and Steam Deck development are outside the current roadmap. Existing cross-platform code is not removed solely
+because it is outside that roadmap.
+
+See [中文说明](README.zh-CN.md), [project scope and hardware validation](PROJECT.md), and
+[upstream provenance](UPSTREAM.md). There is no separate release of this derivative yet; upstream release downloads
+do not include our local changes. Build this checkout to use them.
 
 **UltraTears** is an unofficial builder: on your PC it turns your own copy of a Nintendo Switch game into a native
-Windows program. It works with one game, *Tears of the Kingdom* version 1.4.3. Steam Deck and Linux support is planned
-and is a high priority. It is not an emulator: the program code of your copy is translated ahead of time (static
+Windows program. It works with one game, *Tears of the Kingdom* version 1.4.3.
+It is not an emulator: the program code of your copy is translated ahead of time (static
 recompilation, ARM64 → C → x86-64), and the Switch system and its NVN graphics API are replaced by the port's own
 implementations on Windows and Vulkan. Shaders and textures are converted for PC graphics cards when the game is built,
 not while you play.
@@ -15,18 +30,22 @@ not while you play.
 > UltraTears is not affiliated with or endorsed by Nintendo. *The Legend of Zelda* and *Tears of the Kingdom* are
 > trademarks of Nintendo; the name is used only to say which game this works with.
 
-Русская версия: [README.ru.md](README.ru.md).
+Русская версия (upstream documentation; not yet adapted to this derivative): [README.ru.md](README.ru.md).
 
 ## Status
 
-Early. Measured on the developer's PC (Windows 10, Ryzen, 16 threads, GeForce RTX 3060):
+Early and experimental. The current derivative has the following validation status:
 
 | What | Result |
 |---|---|
-| Title screen, new game, prologue, Great Sky Island | plays |
-| Frame rate | the game's own 30 fps, with drops while new shaders compile (being fixed: shaders compiled ahead) |
-| Steam Deck / Linux | not supported yet; a native version is planned and is a high priority |
-| Other PCs and graphics cards | not tested yet |
+| Windows / AMD Radeon RX 6750 GRE 12 GB | user confirmed the tested black-screen scene renders with the optional attachment-copy fallback; not a full-game compatibility claim |
+| Windows / NVIDIA laptop | planned test hardware; model, driver, rendering and performance results are not yet recorded |
+| Frame rate | stable 30 fps at 1080p has not been achieved in the current user's testing; four recording threads are experimental |
+| Keyboard / mouse | basic right-stick mouse emulation and debug bindings implemented; not a native mouse camera |
+| Steam Deck / Linux | outside the current development and validation scope |
+| Other PCs and graphics cards | not yet validated by this derivative |
+
+The upstream README reported testing on a GeForce RTX 3060. That result does not validate our modified build on NVIDIA.
 
 Known issues: hitches the first time an effect or place is seen (shader compilation); the controller layout follows the
 Switch (A is the right face button); no settings menu yet (window size, resolution, upscaling come later).
@@ -38,8 +57,8 @@ on your PC from your own extracted dump. There are two ways to do that:
 
 | Method | Who it is for | What you install |
 |---|---|---|
-| **Builder package from Releases** | Almost every player. This is the recommended and easiest method | Nothing |
-| **Current GitHub source** | Developers and people testing their own changes | Git and any maintained Python 3; the remaining tools download automatically |
+| **Upstream builder package** | Users who specifically want the upstream version, without this derivative's changes | Nothing |
+| **This source checkout** | Required for this derivative until a separate builder is published | Git and any maintained Python 3; the remaining tools download automatically |
 
 Both methods produce the same playable folder. The Releases package already carries every build tool. The source build
 uses the tools already on your PC and downloads only the missing ones from where they are published (Python from
@@ -69,7 +88,9 @@ the same game build.
   does not provide or point to extraction tools. `.nsp`, `.xci`, `.nca` and other encrypted packages do not work:
   UltraTears decrypts nothing and reads no keys.
 
-## Method 1 — builder package from Releases (recommended)
+## Method 1 — upstream builder package (does not include this derivative)
+
+The following package instructions are retained for upstream users. To build **UltraTears Windows**, use Method 2.
 
 ### 1. Download and extract the builder
 
@@ -135,18 +156,17 @@ Do not move the EXE by itself. It needs `ultratears.cfg` and the `data` folder b
 
 ## Method 2 — build the current GitHub source
 
-Use this method when changing the code or building the newest commit. Install Git and Python 3, open PowerShell, then
-run:
-
-```powershell
-git clone https://github.com/kuraeow/ultratears.git
-cd ultratears
-```
-
-Put `exefs` and `romfs` in `ultratears\game` as shown above, then run:
+Use this method for this derivative. Install Git and Python 3, open PowerShell in this checkout, then run:
 
 ```powershell
 python tools/setup.py
+```
+
+Before running the command, put `exefs` and `romfs` in this checkout's `game` directory as shown above.
+Alternatively, use an existing dump without copying it into this checkout:
+
+```powershell
+python tools/setup.py --dump D:\Dumps\TOTK-1.4.3
 ```
 
 This **one command performs the entire process**:
@@ -228,8 +248,8 @@ To update a Releases build, extract the new builder package over the old folder 
 options.
 
 > **Steam Deck and Linux are not supported yet.** The Windows build does not work through Proton because its memory
-> access method is incompatible with `winevulkan`. A native Linux and Steam Deck version is planned and is one of the
-> project's high-priority tasks.
+> access method is incompatible with `winevulkan`. Native Linux and Steam Deck development are outside this
+> derivative's current roadmap.
 
 ## If the build stops with an error
 
