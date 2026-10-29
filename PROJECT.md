@@ -1,6 +1,6 @@
 # Project scope and validation
 
-UltraTears Windows is a working name for an independently maintained derivative of UltraTears.
+TearLift is an independently maintained derivative of UltraTears.
 It retains the upstream history, attribution and GPL license; see [UPSTREAM.md](UPSTREAM.md).
 
 ## Current priorities

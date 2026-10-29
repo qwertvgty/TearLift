@@ -1,4 +1,4 @@
-> This is inherited upstream documentation, not yet adapted to UltraTears Windows.
+> This is inherited upstream documentation, not yet adapted to TearLift.
 > For this derivative's Windows-first scope, NVIDIA/AMD validation status and release availability, see
 > [README.md](README.md) and [PROJECT.md](PROJECT.md). Linux/Steam Deck priorities below describe upstream only.
 

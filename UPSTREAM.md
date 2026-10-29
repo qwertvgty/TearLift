@@ -15,7 +15,7 @@ This derivative is independently maintained, is not an official upstream release
 - Original commits, author identities and copyright notices are retained.
 - The upstream remote is for source comparison and selective integration, not automatic publication.
 
-The working name is **UltraTears Windows**. Executable names, configuration keys and internal identifiers
+The project name is **TearLift**. Executable names, configuration keys and internal identifiers
 remain UltraTears for now. Branding does not change the origin or license of the source.
 
 ## License and community contributions
@@ -25,8 +25,8 @@ Third-party components retain their own licenses; see [third_party/README.md](th
 For each future community integration, retain original authorship and document the PR URL, exact commit,
 local adaptations and validation. Existing experiments do not imply that those upstream PRs have been merged.
 
-## Local repository boundary
+## Repository contents
 
-This is a source-only copy. The original checkout, its game dump, builds, caches, fonts and saves are untouched.
-Ignored runtime files and untracked private experiment notes were not copied. No GitHub repository has been
-created or published as part of this local copy. A public name and destination can be selected separately.
+The project repository is [qwertvgty/TearLift](https://github.com/qwertvgty/TearLift).
+Only project source, documentation and project assets belong here. Game dumps, generated game code, compiled game
+executables, caches, system fonts, firmware, keys, user saves and private experiment artifacts are not distributed.
