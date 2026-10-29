@@ -26,10 +26,12 @@ if ($SaveDir) { $set.TOTK_PROFILE_DIR = (Resolve-Path -LiteralPath $SaveDir).Pat
 $saved = @{}
 foreach ($name in ($clear + @($set.Keys))) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
-    foreach ($name in $clear) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
+    # Windows PowerShell/.NET can preserve an empty entry for SetEnvironmentVariable(name, $null).
+    # Native getenv then returns a non-NULL empty string, which still enables presence-based diagnostics.
+    foreach ($name in $clear) { Remove-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue }
     foreach ($name in $set.Keys) { [Environment]::SetEnvironmentVariable($name, $set[$name], 'Process') }
     if ($DryRun) {
-        $remaining = @($clear | Where-Object { [Environment]::GetEnvironmentVariable($_, 'Process') })
+        $remaining = @($clear | Where-Object { Test-Path -LiteralPath ("Env:" + $_) })
         [pscustomobject]@{ Executable = $exe; Arguments = '--debug'; Threads = $Threads; Overrides = $set; Cleared = $clear; DiagnosticsStillSet = $remaining } |
             ConvertTo-Json -Depth 4
     } else {
@@ -42,5 +44,8 @@ try {
             Select-Object Id, ProcessName
     }
 } finally {
-    foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
+    foreach ($name in $saved.Keys) {
+        if ($null -eq $saved[$name]) { Remove-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue }
+        else { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
+    }
 }
